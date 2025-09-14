@@ -1,19 +1,33 @@
 {
     "name": "vasilyevmichail-spec/configs-server-client-laravel",
-    "description": "Laravel configuration manager with .env priority support",
+    "description": "Laravel package for loading configuration from custom .my_env file with early loading support",
     "type": "library",
+    "version": "1.0.3",
+    "keywords": ["laravel", "config", "env", "configuration", "dotenv"],
     "license": "MIT",
-    "version": "1.0.2",
+    "require": {
+        "php": "^8.2",
+        "illuminate/support": "^10.0",
+        "illuminate/config": "^10.0"
+    },
     "autoload": {
         "psr-4": {
             "VM\\ConfigManager\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "VM\\ConfigManager\\Tests\\": "tests/"
+        }
+    },
     "extra": {
         "laravel": {
             "providers": [
-                "VM\\ConfigManager\\ConfigServiceProvider"
-            ]
+                "VM\\ConfigManager\\ConfigManagerServiceProvider"
+            ],
+            "aliases": {
+                "ConfigManager": "VM\\ConfigManager\\Facades\\ConfigManager"
+            }
         }
     },
     "minimum-stability": "stable",

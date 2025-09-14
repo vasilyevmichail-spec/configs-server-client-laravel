@@ -2,173 +2,78 @@
 
 namespace VM\ConfigManager;
 
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\File;
+use Illuminate\Support\Arr;
 
 class ConfigManager
 {
-    /**
-     * Загружает конфигурацию из config.php и .env файлов
-     * Конфигурация из .env имеет приоритет
-     *
-     * @return void
-     */
-    public function loadConfiguration(): void
+    protected string $filePath;
+    protected array $variables = [];
+    protected bool $loaded = false;
+
+    public function __construct(string $basePath)
     {
-        $this->loadConfigFile();
-        $this->overrideWithEnv();
+        $this->filePath = $this->detectConfigFile($basePath);
     }
 
-    /**
-     * Загружает конфигурацию из config.php файла
-     *
-     * @return void
-     */
-    protected function loadConfigFile(): void
+    public function load(): void
     {
-        $configPath = config_path('config.php');
-
-        if (!File::exists($configPath)) {
+        if ($this->loaded || !$this->filePath) {
             return;
         }
 
-        $config = require $configPath;
-
-        if (function_exists('get_config') && is_callable('get_config')) {
-            $config = array_merge($config, get_config());
-        }
-
-        foreach ($config as $key => $value) {
-            Config::set($key, $value);
-        }
+        $this->variables = EarlyLoader::parseFile($this->filePath);
+        $this->loaded = true;
     }
 
-    /**
-     * Переопределяет значения из config.php значениями из .env
-     *
-     * @return void
-     */
-    protected function overrideWithEnv(): void
+    public function get(string $key, mixed $default = null): mixed
     {
-        // Получаем все переменные окружения, которые начинаются с префиксов Laravel
-        $envVariables = $_ENV;
-
-        foreach ($envVariables as $key => $value) {
-            // Игнорируем системные переменные и переменные без префиксов
-            if ($this->isLaravelConfigKey($key)) {
-                $configKey = $this->convertEnvKeyToConfigKey($key);
-                Config::set($configKey, $value);
-            }
-        }
+        $this->load();
+        return Arr::get($this->variables, $key, $default);
     }
 
-    /**
-     * Проверяет, является ли ключ конфигурационным ключом Laravel
-     *
-     * @param string $key
-     * @return bool
-     */
-    protected function isLaravelConfigKey(string $key): bool
+    public function all(): array
     {
-        $laravelPrefixes = [
-            'APP_', 'DB_', 'MAIL_', 'REDIS_', 'CACHE_', 'SESSION_',
-            'QUEUE_', 'BROADCAST_', 'LOG_', 'FILESYSTEM_', 'VIEW_',
-            'BROADCASTING_', 'SERVICES_', 'AUTH_'
+        $this->load();
+        return $this->variables;
+    }
+
+    public function has(string $key): bool
+    {
+        $this->load();
+        return Arr::has($this->variables, $key);
+    }
+
+    public function set(string $key, mixed $value): void
+    {
+        $this->load();
+        $this->variables[$key] = $value;
+    }
+
+    public function getFilePath(): ?string
+    {
+        return $this->filePath;
+    }
+
+    public function isLoaded(): bool
+    {
+        return $this->loaded;
+    }
+
+    protected function detectConfigFile(string $basePath): ?string
+    {
+        $possibleFiles = [
+            $basePath . DIRECTORY_SEPARATOR . '.my_env',
+            $basePath . DIRECTORY_SEPARATOR . 'custom.env',
+            $basePath . DIRECTORY_SEPARATOR . 'config.env',
+            $basePath . DIRECTORY_SEPARATOR . '.env.custom'
         ];
 
-        foreach ($laravelPrefixes as $prefix) {
-            if (str_starts_with($key, $prefix)) {
-                return true;
+        foreach ($possibleFiles as $file) {
+            if (file_exists($file)) {
+                return $file;
             }
         }
 
-        return false;
-    }
-
-    /**
-     * Конвертирует ключ из .env формата в формат конфигурации Laravel
-     *
-     * @param string $envKey
-     * @return string
-     */
-    protected function convertEnvKeyToConfigKey(string $envKey): string
-    {
-        $mapping = [
-            'APP_' => 'app.',
-            'DB_' => 'database.connections.mysql.',
-            'MAIL_' => 'mail.',
-            'REDIS_' => 'database.redis.',
-            'CACHE_' => 'cache.',
-            'SESSION_' => 'session.',
-            'QUEUE_' => 'queue.',
-            'BROADCAST_' => 'broadcasting.',
-            'LOG_' => 'logging.',
-            'FILESYSTEM_' => 'filesystems.',
-            'VIEW_' => 'view.',
-        ];
-
-        foreach ($mapping as $envPrefix => $configPrefix) {
-            if (str_starts_with($envKey, $envPrefix)) {
-                $keyWithoutPrefix = strtolower(substr($envKey, strlen($envPrefix)));
-                $keyWithDots = str_replace('_', '.', $keyWithoutPrefix);
-                return $configPrefix . $keyWithDots;
-            }
-        }
-
-        // Для кастомных ключей, не входящих в стандартные префиксы
-        return strtolower(str_replace('_', '.', $envKey));
-    }
-
-    /**
-     * Получает значение конфигурации с учетом приоритета .env
-     *
-     * @param string $key
-     * @param mixed $default
-     * @return mixed
-     */
-    public function get(string $key, $default = null)
-    {
-        // Сначала проверяем .env
-        $envKey = $this->convertConfigKeyToEnvKey($key);
-        if (isset($_ENV[$envKey])) {
-            return $_ENV[$envKey];
-        }
-
-        // Затем проверяем config.php
-        return Config::get($key, $default);
-    }
-
-    /**
-     * Конвертирует ключ конфигурации в формат .env
-     *
-     * @param string $configKey
-     * @return string
-     */
-    protected function convertConfigKeyToEnvKey(string $configKey): string
-    {
-        $mapping = [
-            'app.' => 'APP_',
-            'database.connections.mysql.' => 'DB_',
-            'mail.' => 'MAIL_',
-            'database.redis.' => 'REDIS_',
-            'cache.' => 'CACHE_',
-            'session.' => 'SESSION_',
-            'queue.' => 'QUEUE_',
-            'broadcasting.' => 'BROADCAST_',
-            'logging.' => 'LOG_',
-            'filesystems.' => 'FILESYSTEM_',
-            'view.' => 'VIEW_',
-        ];
-
-        foreach ($mapping as $configPrefix => $envPrefix) {
-            if (str_starts_with($configKey, $configPrefix)) {
-                $keyWithoutPrefix = substr($configKey, strlen($configPrefix));
-                $keyWithUnderscores = strtoupper(str_replace('.', '_', $keyWithoutPrefix));
-                return $envPrefix . $keyWithUnderscores;
-            }
-        }
-
-        // Для кастомных ключей
-        return strtoupper(str_replace('.', '_', $configKey));
+        return null;
     }
 }
